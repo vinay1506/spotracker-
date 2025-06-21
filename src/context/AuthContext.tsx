@@ -2,55 +2,42 @@ import { createContext, useState, useEffect, ReactNode, useContext } from 'react
 import { spotifyService } from '@/lib/spotify';
 
 interface AuthContextType {
-  token: string | null;
   isAuthenticated: boolean;
-  user: any; // You can create a specific User type
+  setAuthenticated: (auth: boolean) => void;
+  user: any;
   loading: boolean;
-  login: (token: string) => void;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('spotifyToken'));
+  const [isAuthenticated, setAuthenticated] = useState(false);
   const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let isMounted = true;
-    const validateToken = async () => {
-      if (token) {
-        try {
-          const profileData = await spotifyService.getProfile();
-          if (isMounted) setUser(profileData);
-          if (isMounted) setLoading(false);
-        } catch (error) {
-          console.error("Session expired or token is invalid.", error);
-          if (isMounted) logout();
-          if (isMounted) setLoading(false);
-        }
-      } else {
-        if (isMounted) setLoading(false);
-      }
-    };
-    validateToken();
-    return () => { isMounted = false; };
-  }, [token]);
-
-  const login = (newToken: string) => {
-    localStorage.setItem('spotifyToken', newToken);
-    setToken(newToken);
-  };
+    // Check session by fetching profile
+    spotifyService.getProfile()
+      .then(profile => {
+        setUser(profile);
+        setAuthenticated(true);
+      })
+      .catch(() => {
+        setUser(null);
+        setAuthenticated(false);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const logout = () => {
-    localStorage.removeItem('spotifyToken');
-    setToken(null);
+    setAuthenticated(false);
     setUser(null);
+    spotifyService.logout();
   };
 
   return (
-    <AuthContext.Provider value={{ token, isAuthenticated: !!token, user, loading, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, setAuthenticated, user, loading, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -58,8 +45,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 }; 

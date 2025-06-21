@@ -4,6 +4,7 @@ const API_BASE_URL = 'https://spostats-backend-production.up.railway.app';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+  withCredentials: true, // Always send cookies!
 });
 
 // Use an interceptor to add the token to every request

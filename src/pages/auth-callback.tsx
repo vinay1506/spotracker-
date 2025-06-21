@@ -1,19 +1,12 @@
 import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import axios from 'axios';
 
-// Helper to decode base64-encoded JSON
-function decodeToken(token: string) {
-  try {
-    const json = atob(token);
-    return JSON.parse(json);
-  } catch (e) {
-    return null;
-  }
-}
+const API_BASE_URL = 'https://spostats-backend-production.up.railway.app';
 
 const AuthCallbackPage = () => {
-  const { login } = useAuth();
+  const { setAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -22,16 +15,21 @@ const AuthCallbackPage = () => {
     const token = params.get('token');
 
     if (token) {
-      console.log("Token received, logging in...");
-      login(token);
-      // Navigate to the dashboard after a short delay to ensure context is updated
-      setTimeout(() => navigate('/dashboard'), 100);
+      // Send token to backend to establish session
+      axios.post(`${API_BASE_URL}/auth/session`, { token }, { withCredentials: true })
+        .then(() => {
+          setAuthenticated(true); // update context
+          navigate('/dashboard');
+        })
+        .catch(() => {
+          setAuthenticated(false);
+          navigate('/');
+        });
     } else {
-      console.error("No token found in URL, redirecting to login.");
-      // Handle case where there's no token
+      setAuthenticated(false);
       navigate('/');
     }
-  }, [login, navigate, location]);
+  }, [setAuthenticated, navigate, location]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
