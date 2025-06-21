@@ -13,14 +13,14 @@ import Footer from '@/components/landing/Footer';
 
 // A wrapper for protected routes that checks for authentication
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
   
   if (loading) {
     // You can show a global loading spinner here
     return <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">Loading...</div>;
   }
   
-  return isAuthenticated ? children : <Navigate to="/" replace />;
+  return isAuthenticated && user ? children : <Navigate to="/" replace />;
 };
 
 const App = () => {

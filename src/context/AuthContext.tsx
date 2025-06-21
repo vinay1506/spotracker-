@@ -18,20 +18,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
+    let isMounted = true;
     const validateToken = async () => {
       if (token) {
         try {
-          // You could have a /api/validate-token endpoint or just fetch the user profile
           const profileData = await spotifyService.getProfile();
-          setUser(profileData);
+          if (isMounted) setUser(profileData);
+          if (isMounted) setLoading(false);
         } catch (error) {
           console.error("Session expired or token is invalid.", error);
-          logout(); // Token is invalid, so log out
+          if (isMounted) logout();
+          if (isMounted) setLoading(false);
         }
+      } else {
+        if (isMounted) setLoading(false);
       }
-      setLoading(false);
     };
     validateToken();
+    return () => { isMounted = false; };
   }, [token]);
 
   const login = (newToken: string) => {
