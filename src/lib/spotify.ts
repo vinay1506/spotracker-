@@ -2,11 +2,38 @@ import axios from 'axios';
 
 const API_BASE_URL = 'https://spostats-backend-production.up.railway.app';
 
-// Create a single axios instance with credentials enabled
 const api = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: true,
 });
+
+// Use an interceptor to add the token to every request
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('spotifyToken');
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Use an interceptor to handle 401 errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      // Token is invalid or expired.
+      // The AuthContext will handle the logout, but we can also force a reload
+      // to clear all state and redirect to login.
+      localStorage.removeItem('spotifyToken');
+      window.location.href = '/'; // Redirect to home/login page
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const spotifyService = {
   // Redirect to Spotify login
@@ -14,9 +41,11 @@ export const spotifyService = {
     window.location.href = `${API_BASE_URL}/auth/login`;
   },
 
-  // Redirect to Spotify logout
+  // The logout functionality is now handled by the AuthContext and this interceptor
+  // We can keep this for explicit logout button clicks if needed, which will trigger the interceptor logic
   logout: () => {
-    window.location.href = `${API_BASE_URL}/auth/logout`;
+    localStorage.removeItem('spotifyToken');
+    window.location.href = '/';
   },
 
   // Get user profile

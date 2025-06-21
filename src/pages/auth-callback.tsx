@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
 
 // Helper to decode base64-encoded JSON
 function decodeToken(token: string) {
@@ -11,38 +12,35 @@ function decodeToken(token: string) {
   }
 }
 
-const AuthCallback = () => {
+const AuthCallbackPage = () => {
+  const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     const token = params.get('token');
+
     if (token) {
-      const data = decodeToken(token);
-      if (data) {
-        // Store in localStorage (or sessionStorage as needed)
-        localStorage.setItem('spostats_user', JSON.stringify(data));
-        // Optionally store access token separately
-        if (data.access_token) {
-          localStorage.setItem('spostats_access_token', data.access_token);
-        }
-        // Redirect to dashboard
-        navigate('/dashboard', { replace: true });
-        return;
-      }
+      console.log("Token received, logging in...");
+      login(token);
+      // Navigate to the dashboard after a short delay to ensure context is updated
+      setTimeout(() => navigate('/dashboard'), 100);
+    } else {
+      console.error("No token found in URL, redirecting to login.");
+      // Handle case where there's no token
+      navigate('/');
     }
-    // If token is missing or invalid, redirect to home
-    navigate('/', { replace: true });
-  }, [navigate]);
+  }, [login, navigate, location]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-black text-white">
+    <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
       <div className="text-center">
-        <h1 className="text-2xl font-bold mb-4">Processing login...</h1>
-        <p className="text-lg">Please wait while we log you in with Spotify.</p>
+        <h1 className="text-2xl font-bold">Authenticating...</h1>
+        <p>Please wait while we log you in.</p>
       </div>
     </div>
   );
 };
 
-export default AuthCallback; 
+export default AuthCallbackPage; 

@@ -27,6 +27,7 @@ import {
   Star,
   Crown
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 interface Profile {
   display_name: string;
@@ -60,7 +61,7 @@ interface Stats {
 }
 
 const Dashboard = () => {
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const { user, logout } = useAuth();
   const [topTracks, setTopTracks] = useState<Track[]>([]);
   const [topArtists, setTopArtists] = useState<Artist[]>([]);
   const [recentlyPlayed, setRecentlyPlayed] = useState<Track[]>([]);
@@ -72,88 +73,125 @@ const Dashboard = () => {
     topGenre: '',
     averageDailyMinutes: 0
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState({
+    tracks: true,
+    artists: true,
+    recent: true,
+  });
   const [error, setError] = useState<string | null>(null);
   const [activeTimeRange, setActiveTimeRange] = useState<'short_term' | 'medium_term' | 'long_term'>('medium_term');
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchRecentAndStats = async () => {
+      setLoading(prev => ({ ...prev, recent: true }));
       try {
-        const [profileData, tracksData, artistsData, recentData] = await Promise.all([
-          spotifyService.getProfile(),
+        const recentResult = await spotifyService.getRecentlyPlayed();
+        if (recentResult && recentResult.items) {
+          setRecentlyPlayed(recentResult.items.map((item: any) => item.track));
+          calculateRecentStats(recentResult.items);
+        } else {
+          setRecentlyPlayed([]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch recently played:', err);
+      } finally {
+        setLoading(prev => ({ ...prev, recent: false }));
+      }
+    };
+    fetchRecentAndStats();
+  }, []);
+
+  useEffect(() => {
+    const fetchTopData = async () => {
+      setLoading(prev => ({ ...prev, tracks: true, artists: true }));
+      try {
+        const [tracksResult, artistsResult] = await Promise.allSettled([
           spotifyService.getTopTracks(activeTimeRange),
           spotifyService.getTopArtists(activeTimeRange),
-          spotifyService.getRecentlyPlayed()
         ]);
 
-        setProfile(profileData);
-        setTopTracks(tracksData.items);
-        setTopArtists(artistsData.items);
-        setRecentlyPlayed(recentData.items.map((item: any) => item.track));
+        if (tracksResult.status === 'fulfilled' && tracksResult.value.items) {
+          setTopTracks(tracksResult.value.items);
+        } else {
+          setTopTracks([]);
+          console.error('Failed to fetch top tracks:', tracksResult.status === 'rejected' && tracksResult.reason);
+        }
 
-        // Calculate stats
-        const today = new Date();
-        const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-        
-        const todayTracks = recentData.items.filter((item: any) => {
-          const playedAt = new Date(item.played_at);
-          return playedAt.toDateString() === today.toDateString();
-        });
+        if (artistsResult.status === 'fulfilled' && artistsResult.value.items) {
+          setTopArtists(artistsResult.value.items);
+          calculateTopGenre(artistsResult.value.items);
+        } else {
+          setTopArtists([]);
+          console.error('Failed to fetch top artists:', artistsResult.status === 'rejected' && artistsResult.reason);
+        }
 
-        const monthTracks = recentData.items.filter((item: any) => {
-          const playedAt = new Date(item.played_at);
-          return playedAt >= monthStart;
-        });
-
-        const uniqueArtists = new Set(recentData.items.map((item: any) => item.track.artists[0].name)).size;
-        
-        // Calculate top genre
-        const genreCount = new Map<string, number>();
-        artistsData.items.forEach((artist: Artist) => {
-          artist.genres.forEach(genre => {
-            genreCount.set(genre, (genreCount.get(genre) || 0) + 1);
-          });
-        });
-        const topGenre = Array.from(genreCount.entries())
-          .sort((a, b) => b[1] - a[1])[0]?.[0] || '';
-
-        setStats({
-          todayMinutes: Math.round(todayTracks.reduce((acc: number, item: any) => acc + item.track.duration_ms, 0) / 60000),
-          monthMinutes: Math.round(monthTracks.reduce((acc: number, item: any) => acc + item.track.duration_ms, 0) / 60000),
-          totalTracks: recentData.items.length,
-          uniqueArtists,
-          topGenre,
-          averageDailyMinutes: Math.round(monthTracks.reduce((acc: number, item: any) => acc + item.track.duration_ms, 0) / 60000 / today.getDate())
-        });
       } catch (err) {
-        setError('Failed to load data. Please try logging in again.');
+        console.error(`An unexpected error occurred fetching top data for ${activeTimeRange}:`, err);
+        setError('An unexpected error occurred. Please try again.');
       } finally {
-        setLoading(false);
+        setLoading(prev => ({ ...prev, tracks: false, artists: false }));
       }
     };
 
-    fetchData();
+    fetchTopData();
   }, [activeTimeRange]);
+
+  const calculateRecentStats = (recentItems: any[]) => {
+    // Calculate stats
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    
+    const todayTracks = recentItems.filter((item: any) => {
+      const playedAt = new Date(item.played_at);
+      return playedAt.toDateString() === today.toDateString();
+    });
+
+    const monthTracks = recentItems.filter((item: any) => {
+      const playedAt = new Date(item.played_at);
+      return playedAt >= monthStart;
+    });
+
+    const uniqueArtists = new Set(recentItems.map((item: any) => item.track.artists[0].name)).size;
+    
+    // Calculate top genre
+    const genreCount = new Map<string, number>();
+    topArtists.forEach((artist: Artist) => {
+      artist.genres.forEach(genre => {
+        genreCount.set(genre, (genreCount.get(genre) || 0) + 1);
+      });
+    });
+    const topGenre = Array.from(genreCount.entries())
+      .sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+
+    setStats({
+      todayMinutes: Math.round(todayTracks.reduce((acc: number, item: any) => acc + item.track.duration_ms, 0) / 60000),
+      monthMinutes: Math.round(monthTracks.reduce((acc: number, item: any) => acc + item.track.duration_ms, 0) / 60000),
+      totalTracks: recentItems.length,
+      uniqueArtists,
+      topGenre,
+      averageDailyMinutes: Math.round(monthTracks.reduce((acc: number, item: any) => acc + item.track.duration_ms, 0) / 60000 / today.getDate())
+    });
+  };
+
+  const calculateTopGenre = (artists: Artist[]) => {
+    // Calculate top genre
+    const genreCount = new Map<string, number>();
+    artists.forEach((artist: Artist) => {
+      artist.genres.forEach(genre => {
+        genreCount.set(genre, (genreCount.get(genre) || 0) + 1);
+      });
+    });
+    const topGenre = Array.from(genreCount.entries())
+      .sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+
+    setStats(prev => ({ ...prev, topGenre }));
+  };
 
   const formatDuration = (minutes: number) => {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return `${hours}h ${mins}m`;
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center">
-        <div className="text-center space-y-6 p-8 rounded-2xl bg-gray-800/30 backdrop-blur-sm border border-gray-700/50">
-          <div className="relative">
-            <div className="animate-spin rounded-full h-16 w-16 border-4 border-green-500/20 border-t-green-500"></div>
-            <Headphones className="h-8 w-8 text-green-500 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
-          </div>
-          <p className="text-gray-400 text-lg font-medium">Loading your music stats...</p>
-        </div>
-      </div>
-    );
-  }
 
   if (error) {
     return (
@@ -202,24 +240,22 @@ const Dashboard = () => {
               </a>
             </nav>
           </div>
-          {profile && (
+          {user && (
             <div className="flex items-center space-x-4">
-              <div className="hidden md:flex items-center space-x-2 text-[#b3b3b3]">
-                <Activity className="h-4 w-4" />
-                <span className="text-sm">Active Now</span>
-              </div>
-              <div className="h-6 w-px bg-[#535353]" />
               <div className="flex items-center space-x-3">
                 <Avatar className="h-8 w-8 border border-[#535353]">
-                  <AvatarImage src={profile.images[0]?.url} />
+                  <AvatarImage src={user.images[0]?.url} />
                   <AvatarFallback className="bg-[#1db954] text-white">
-                    {profile.display_name[0]}
+                    {user.display_name[0]}
                   </AvatarFallback>
                 </Avatar>
                 <span className="text-sm font-medium text-white hidden md:inline">
-                  {profile.display_name}
+                  {user.display_name}
                 </span>
               </div>
+              <Button onClick={logout} variant="outline" size="sm" className="text-white border-white/50 hover:bg-white/10 hover:text-white">
+                Logout
+              </Button>
             </div>
           )}
         </div>
@@ -227,14 +263,14 @@ const Dashboard = () => {
 
       <div className="container mx-auto px-4 py-8 space-y-8">
         {/* Profile Section */}
-        {profile && (
+        {user && (
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between space-y-4 md:space-y-0 bg-[#212121] p-8 rounded-lg">
             <div className="flex items-center space-x-6">
               <div className="relative">
                 <Avatar className="h-28 w-28 border-2 border-[#1db954] shadow-lg relative">
-                  <AvatarImage src={profile.images[0]?.url} />
+                  <AvatarImage src={user.images[0]?.url} />
                   <AvatarFallback className="bg-[#1db954] text-white text-4xl">
-                    {profile.display_name[0]}
+                    {user.display_name[0]}
                   </AvatarFallback>
                 </Avatar>
                 <div className="absolute -bottom-2 -right-2 bg-[#1db954] text-white rounded-full w-10 h-10 flex items-center justify-center font-bold shadow-lg border-2 border-[#121212]">
@@ -243,11 +279,11 @@ const Dashboard = () => {
               </div>
               <div>
                 <h1 className="text-5xl font-bold text-white">
-                  {profile.display_name}
+                  {user.display_name}
                 </h1>
                 <p className="text-[#b3b3b3] flex items-center mt-3 text-xl">
                   <Users className="h-6 w-6 mr-2 text-[#1db954]" />
-                  {profile.followers.total.toLocaleString()} followers
+                  {user.followers.total.toLocaleString()} followers
                 </p>
               </div>
             </div>
